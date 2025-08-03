@@ -1,0 +1,418 @@
+// Configuração do Prisma para AgendaBem
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Enums
+enum Role {
+  PROFESSIONAL
+  ADMIN
+}
+
+enum AppointmentStatus {
+  SCHEDULED    // Agendado
+  CONFIRMED    // Confirmado
+  COMPLETED    // Concluído
+  CANCELLED    // Cancelado
+  NO_SHOW      // Não compareceu
+}
+
+enum ServiceType {
+  MEDICAL      // Médico
+  DENTAL       // Dentista
+  BEAUTY       // Beleza/Estética
+  THERAPY      // Terapia
+  WELLNESS     // Bem-estar
+  OTHER        // Outros
+}
+
+enum PaymentMethod {
+  OFFLINE      // Pagamento presencial/manual
+  PIX_OWN      // PIX próprio do profissional
+  INTEGRATED   // Pagamento integrado via AgendaBem
+}
+
+enum PaymentProvider {
+  STRIPE       // Stripe (internacional)
+  MERCADOPAGO  // Mercado Pago (brasileiro)
+  MANUAL       // Manual/Offline
+}
+
+enum PaymentStatus {
+  PENDING      // Pendente
+  PAID         // Pago
+  FAILED       // Falhou
+  REFUNDED     // Reembolsado
+  CANCELLED    // Cancelado
+}
+
+enum SubscriptionStatus {
+  ACTIVE       // Ativa
+  CANCELLED    // Cancelada
+  PAST_DUE     // Em atraso
+  TRIALING     // Período trial
+}
+
+enum AuditAction {
+  CREATE
+  READ
+  UPDATE
+  DELETE
+  LOGIN
+  LOGOUT
+  EXPORT_DATA
+  DELETE_DATA
+}
+
+// Tabela principal de usuários (profissionais)
+model User {
+  id                String    @id @default(cuid())
+  email             String    @unique
+  emailVerified     DateTime?
+  passwordHash      String
+  name              String
+  phone             String?   // Será criptografado na aplicação
+  role              Role      @default(PROFESSIONAL)
+  
+  // Segurança e 2FA
+  twoFactorEnabled  Boolean   @default(false)
+  twoFactorSecret   String?   // TOTP secret
+  backupCodes       String[]  // Códigos de backup
+  
+  // LGPD Compliance
+  dataConsent       Boolean   @default(false)
+  consentDate       DateTime?
+  dataRetentionDays Int       @default(365)
+  
+  // Timestamps e auditoria
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  lastLogin         DateTime?
+  lastLoginIp       String?   // Hash do IP
+  
+  // Soft delete
+  deletedAt         DateTime?
+  
+  // Relações
+  profile           Profile?
+  subscription      Subscription?
+  services          Service[]
+  appointments      Appointment[]
+  clients           Client[]
+  payments          Payment[]
+  auditLogs         AuditLog[]
+  accounts          Account[]
+  sessions          Session[]
+  
+  @@map("users")
+}
+
+// Perfil profissional
+model Profile {
+  id                String      @id @default(cuid())
+  userId            String      @unique
+  user              User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Informações profissionais
+  businessName      String?
+  profession        String?
+  speciality        String?
+  serviceType       ServiceType @default(OTHER)
+  
+  // Configurações de agenda
+  workingDays       Int[]       // [1,2,3,4,5] = seg-sex
+  workingHours      Json        // {"start": "09:00", "end": "18:00"}
+  timeSlotDuration  Int         @default(30) // minutos
+  bookingAdvance    Int         @default(24) // horas de antecedência
+  
+  // Informações de contato (criptografadas)
+  address           String?
+  city              String?
+  state             String?
+  zipCode           String?
+  
+  // Configurações de notificação
+  emailNotifications    Boolean @default(true)
+  whatsappNotifications Boolean @default(false)
+  reminderHours         Int     @default(24) // horas antes
+  
+  // SEO e público
+  slug              String?     @unique // /agendar/joao-silva
+  description       String?
+  website           String?
+  
+  // Configurações de pagamento
+  paymentMethod         PaymentMethod @default(OFFLINE)
+  paymentProvider       PaymentProvider @default(MANUAL)
+  pixKey                String?
+  pixName               String?
+  paymentInstructions   String?
+  requirePaymentUpfront Boolean   @default(false)
+  
+  // Configurações de cancelamento
+  cancellationHours     Int       @default(24)
+  noShowFee             Decimal?  @db.Decimal(10,2)
+  
+  // Timestamps
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+  
+  @@map("profiles")
+}
+
+// Serviços oferecidos pelo profissional
+model Service {
+  id                String    @id @default(cuid())
+  userId            String
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  name              String
+  description       String?
+  duration          Int       // minutos
+  price             Decimal?  @db.Decimal(10,2)
+  color             String?   // cor para o calendário
+  isActive          Boolean   @default(true)
+  
+  // Ordem de exibição
+  sortOrder         Int       @default(0)
+  
+  // Timestamps
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  
+  // Relações
+  appointments      Appointment[]
+  payments          Payment[]
+  
+  @@map("services")
+}
+
+// Clientes (dados criptografados)
+model Client {
+  id                String    @id @default(cuid())
+  userId            String    // Profissional que cadastrou
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Dados pessoais (serão criptografados na aplicação)
+  name              String
+  email             String?
+  phone             String?
+  
+  // Informações adicionais
+  birthDate         DateTime?
+  notes             String?   // Observações do profissional
+  
+  // LGPD
+  dataConsent       Boolean   @default(false)
+  consentDate       DateTime?
+  
+  // Timestamps
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  
+  // Soft delete
+  deletedAt         DateTime?
+  
+  // Relações
+  appointments      Appointment[]
+  
+  @@map("clients")
+}
+
+// Agendamentos
+model Appointment {
+  id                String            @id @default(cuid())
+  userId            String            // Profissional
+  user              User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  serviceId         String?           // Serviço (opcional)
+  service           Service?          @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  clientId          String?           // Cliente cadastrado (opcional)
+  client            Client?           @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  
+  // Dados do agendamento
+  date              DateTime
+  duration          Int               // minutos
+  status            AppointmentStatus @default(SCHEDULED)
+  
+  // Dados do cliente (para agendamentos sem cadastro)
+  clientName        String?           // Criptografado se não tiver clientId
+  clientEmail       String?           // Criptografado se não tiver clientId
+  clientPhone       String?           // Criptografado se não tiver clientId
+  
+  // Informações adicionais
+  serviceName       String            // Nome do serviço na época
+  servicePrice      Decimal?          @db.Decimal(10,2)
+  notes             String?
+  internalNotes     String?           // Notas privadas do profissional
+  
+  // Sistema de pagamento
+  requiresPayment   Boolean           @default(false)
+  paymentStatus     PaymentStatus     @default(PENDING)
+  paymentMethod     PaymentMethod     @default(OFFLINE)
+  paymentProvider   PaymentProvider   @default(MANUAL)
+  paidAmount        Decimal?          @db.Decimal(10,2)
+  paidAt            DateTime?
+  paymentReference  String?           // ID da transação externa
+  
+  // Confirmação e lembretes
+  confirmationSent  Boolean           @default(false)
+  reminderSent      Boolean           @default(false)
+  confirmationToken String?           @unique
+  
+  // Rastreamento (para clientes não cadastrados)
+  createdByIp       String?           // Hash do IP
+  userAgent         String?           // Hash do user agent
+  
+  // Timestamps
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  
+  // Soft delete
+  deletedAt         DateTime?
+  
+  @@map("appointments")
+}
+
+// Configurações de assinatura do profissional
+model Subscription {
+  id                String             @id @default(cuid())
+  userId            String             @unique
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Plano
+  planId            String             // free, pro, premium
+  planName          String
+  monthlyPrice      Decimal            @db.Decimal(10,2)
+  
+  // Status da assinatura
+  status            SubscriptionStatus @default(TRIALING)
+  currentPeriodStart DateTime
+  currentPeriodEnd   DateTime
+  
+  // Integração com gateways
+  stripeCustomerId      String?        @unique
+  stripeSubscriptionId  String?        @unique
+  mercadopagoCustomerId String?        @unique
+  
+  // Limites do plano
+  maxAppointments   Int?               // null = ilimitado
+  maxClients        Int?               // null = ilimitado
+  
+  // Features habilitadas
+  features          Json               @default("[]") // ["whatsapp", "reports", "api"]
+  
+  // Timestamps
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  
+  @@map("subscriptions")
+}
+
+// Transações de pagamento
+model Payment {
+  id                String         @id @default(cuid())
+  userId            String?        // Profissional (para assinaturas)
+  user              User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
+  appointmentId     String?        // Agendamento (para pagamentos de clientes)
+  appointment       Appointment?   @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  
+  // Dados da transação
+  amount            Decimal        @db.Decimal(10,2)
+  currency          String         @default("BRL")
+  status            PaymentStatus  @default(PENDING)
+  provider          PaymentProvider
+  
+  // Referências externas
+  externalId        String?        // ID no Stripe/MercadoPago
+  pixCode           String?        // Código PIX gerado
+  boletoUrl         String?        // URL do boleto
+  
+  // Metadata
+  description       String
+  metadata          Json?          @default("{}")
+  
+  // Timestamps
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  paidAt            DateTime?
+  
+  @@map("payments")
+}
+
+// Sistema de auditoria (LGPD compliance)
+model AuditLog {
+  id                String      @id @default(cuid())
+  userId            String?     // Pode ser null para ações anônimas
+  user              User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+  
+  // Ação realizada
+  action            AuditAction
+  resource          String      // appointments, clients, etc
+  resourceId        String?     // ID do recurso afetado
+  
+  // Detalhes da ação
+  details           Json?       // Dados antes/depois da mudança
+  ipAddress         String      // Hash do IP
+  userAgent         String      // Hash do user agent
+  
+  // Timestamp
+  createdAt         DateTime    @default(now())
+  
+  @@map("audit_logs")
+}
+
+// NextAuth.js required models
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+  
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+  
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// Índices para performance
+// Os índices são criados automaticamente pelo Prisma para:
+// - Chaves primárias (@id)
+// - Chaves únicas (@unique)
+// - Chaves estrangeiras (relations)
+
+// Índices adicionais recomendados:
+// @@index([userId, date]) nos appointments
+// @@index([createdAt]) nos audit_logs
+// @@index([email]) nos clients (se não for único)
