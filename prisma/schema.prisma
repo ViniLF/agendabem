@@ -187,7 +187,6 @@ model Service {
   
   // Relações
   appointments      Appointment[]
-  payments          Payment[]
   
   @@map("services")
 }
@@ -274,6 +273,9 @@ model Appointment {
   
   // Soft delete
   deletedAt         DateTime?
+  
+  // Relações
+  payments          Payment[]
   
   @@map("appointments")
 }
