@@ -144,6 +144,10 @@ export async function PUT(request: NextRequest) {
       include: { profile: true }
     })
 
+    if (!currentUser) {
+      return NextResponse.json({ error: 'Usuário não encontrado' }, { status: 404 })
+    }
+
     // Transação para atualizar usuário e perfil
     const result = await prisma.$transaction(async (tx) => {
       // Atualizar dados do usuário se fornecidos
@@ -154,7 +158,8 @@ export async function PUT(request: NextRequest) {
           data: {
             ...(sanitizedUserData.name && { name: sanitizedUserData.name }),
             ...(sanitizedUserData.phone && { phone: sanitizedUserData.phone })
-          }
+          },
+          include: { profile: true } // Incluir profile para manter consistência
         })
       }
 
@@ -165,20 +170,19 @@ export async function PUT(request: NextRequest) {
           userId: session.user.id,
           ...validationResult.data
         },
-        update: validationResult.data,
-        include: {
-          user: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              phone: true
-            }
-          }
-        }
+        update: validationResult.data
       })
 
-      return { user: updatedUser, profile: updatedProfile }
+      return { 
+        user: {
+          id: updatedUser.id,
+          name: updatedUser.name,
+          email: updatedUser.email,
+          phone: updatedUser.phone,
+          role: updatedUser.role
+        }, 
+        profile: updatedProfile 
+      }
     })
 
     // Log de auditoria com mudanças
@@ -199,13 +203,7 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({
       success: true,
       message: 'Perfil atualizado com sucesso',
-      user: {
-        id: result.user.id,
-        name: result.user.name,
-        email: result.user.email,
-        phone: result.user.phone,
-        role: result.user.role
-      },
+      user: result.user,
       profile: result.profile
     })
 
