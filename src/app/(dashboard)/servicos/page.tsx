@@ -1,5 +1,7 @@
-import { Metadata } from 'next'
-import { Plus, Search, MoreHorizontal, Clock, DollarSign, Briefcase, Edit, Trash2, Eye, ToggleLeft, ToggleRight } from 'lucide-react'
+'use client'
+
+import { useState, useEffect } from 'react'
+import { Plus, Search, MoreHorizontal, Clock, DollarSign, Briefcase, Edit, Trash2, Eye, ToggleLeft, ToggleRight, Filter, Loader2, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -10,95 +12,139 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import ServiceModal from '@/components/dashboard/service-modal'
+import { useConfirmDialog, confirmDeleteService, confirmToggleService } from '@/components/dashboard/confirm-dialog'
+import { useServices } from '@/hooks/use-services'
+import { toast } from 'sonner'
 
-export const metadata: Metadata = {
-  title: 'Serviços',
-  description: 'Gerencie os serviços oferecidos em sua agenda'
-}
-
-// Mock data - futuramente virá do banco
-const services = [
-  {
-    id: 1,
-    name: 'Consulta Inicial',
-    description: 'Primeira consulta com avaliação completa do paciente',
-    duration: 60,
-    price: 150.00,
-    color: '#3B82F6',
-    isActive: true,
-    appointmentsCount: 24,
-    lastUsed: '2024-08-03'
-  },
-  {
-    id: 2,
-    name: 'Consulta de Retorno',
-    description: 'Consulta de acompanhamento e reavaliação',
-    duration: 30,
-    price: 80.00,
-    color: '#10B981',
-    isActive: true,
-    appointmentsCount: 45,
-    lastUsed: '2024-08-02'
-  },
-  {
-    id: 3,
-    name: 'Avaliação Especializada',
-    description: 'Avaliação detalhada com exames específicos',
-    duration: 90,
-    price: 250.00,
-    color: '#8B5CF6',
-    isActive: true,
-    appointmentsCount: 12,
-    lastUsed: '2024-07-30'
-  },
-  {
-    id: 4,
-    name: 'Procedimento Rápido',
-    description: 'Procedimentos de menor complexidade',
-    duration: 15,
-    price: 50.00,
-    color: '#F59E0B',
-    isActive: true,
-    appointmentsCount: 8,
-    lastUsed: '2024-07-28'
-  },
-  {
-    id: 5,
-    name: 'Consulta Online',
-    description: 'Atendimento remoto via videochamada',
-    duration: 45,
-    price: 100.00,
-    color: '#EF4444',
-    isActive: false,
-    appointmentsCount: 3,
-    lastUsed: '2024-06-15'
-  }
-]
-
-const stats = {
-  totalServices: services.length,
-  activeServices: services.filter(s => s.isActive).length,
-  avgDuration: Math.round(services.reduce((acc, s) => acc + s.duration, 0) / services.length),
-  avgPrice: services.reduce((acc, s) => acc + s.price, 0) / services.length
-}
-
-function formatDuration(minutes: number) {
-  if (minutes < 60) {
-    return `${minutes}min`
-  }
-  const hours = Math.floor(minutes / 60)
-  const remainingMinutes = minutes % 60
-  return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}min` : `${hours}h`
-}
-
-function formatDate(dateString: string) {
-  return new Date(dateString).toLocaleDateString('pt-BR')
+interface Service {
+  id: string
+  name: string
+  description?: string
+  duration: number
+  price: number
+  color?: string
+  isActive: boolean
+  sortOrder: number
+  createdAt: string
+  updatedAt: string
+  appointmentsCount: number
+  lastUsed: string
 }
 
 export default function ServicosPage() {
+  const [searchTerm, setSearchTerm] = useState('')
+  const [statusFilter, setStatusFilter] = useState('all')
+  const [modalOpen, setModalOpen] = useState(false)
+  const [modalMode, setModalMode] = useState<'create' | 'edit' | 'view'>('create')
+  const [selectedService, setSelectedService] = useState<Service | null>(null)
+
+  const { showDialog, ConfirmDialog } = useConfirmDialog()
+
+  const { 
+    services, 
+    stats, 
+    loading, 
+    error, 
+    searchServices, 
+    deleteService,
+    toggleServiceStatus
+  } = useServices()
+
+  useEffect(() => {
+    searchServices(searchTerm, statusFilter)
+  }, [searchTerm, statusFilter, searchServices])
+
+  const handleSearch = (value: string) => {
+    setSearchTerm(value)
+  }
+
+  const handleStatusFilter = (status: string) => {
+    setStatusFilter(status)
+  }
+
+  const handleCreateService = () => {
+    setSelectedService(null)
+    setModalMode('create')
+    setModalOpen(true)
+  }
+
+  const handleViewService = (service: Service) => {
+    setSelectedService(service)
+    setModalMode('view')
+    setModalOpen(true)
+  }
+
+  const handleEditService = (service: Service) => {
+    setSelectedService(service)
+    setModalMode('edit')
+    setModalOpen(true)
+  }
+
+  const handleToggleService = async (service: Service) => {
+    const newStatus = !service.isActive
+    
+    confirmToggleService(
+      showDialog,
+      service.name,
+      service.isActive,
+      async () => {
+        const success = await toggleServiceStatus(service.id, newStatus)
+        if (success) {
+          toast.success(`Serviço ${newStatus ? 'ativado' : 'desativado'} com sucesso!`)
+        }
+      }
+    )
+  }
+
+  const handleDeleteService = async (service: Service) => {
+    confirmDeleteService(
+      showDialog,
+      service.name,
+      async () => {
+        await deleteService(service.id)
+      },
+      service.appointmentsCount
+    )
+  }
+
+  const formatDuration = (minutes: number) => {
+    if (minutes < 60) {
+      return `${minutes}min`
+    }
+    const hours = Math.floor(minutes / 60)
+    const remainingMinutes = minutes % 60
+    return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}min` : `${hours}h`
+  }
+
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString('pt-BR')
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center space-y-4">
+          <AlertCircle className="h-12 w-12 text-red-500 mx-auto" />
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+              Erro ao carregar serviços
+            </h3>
+            <p className="text-gray-600 dark:text-gray-400 mt-2">{error}</p>
+            <Button 
+              onClick={() => searchServices(searchTerm, statusFilter)} 
+              className="mt-4"
+            >
+              Tentar Novamente
+            </Button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
@@ -108,88 +154,125 @@ export default function ServicosPage() {
             Configure os serviços oferecidos em sua agenda
           </p>
         </div>
-        <Button>
+        <Button onClick={handleCreateService} disabled={loading}>
           <Plus className="h-4 w-4 mr-2" />
           Novo Serviço
         </Button>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total de Serviços</CardTitle>
-            <Briefcase className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.totalServices}</div>
-          </CardContent>
-        </Card>
+      {stats && (
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Total de Serviços</CardTitle>
+              <Briefcase className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{stats.total}</div>
+            </CardContent>
+          </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Serviços Ativos</CardTitle>
-            <ToggleRight className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.activeServices}</div>
-            <p className="text-xs text-muted-foreground">
-              {Math.round((stats.activeServices / stats.totalServices) * 100)}% do total
-            </p>
-          </CardContent>
-        </Card>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Serviços Ativos</CardTitle>
+              <ToggleRight className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{stats.active}</div>
+              <p className="text-xs text-muted-foreground">
+                {stats.total > 0 ? Math.round((stats.active / stats.total) * 100) : 0}% do total
+              </p>
+            </CardContent>
+          </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Duração Média</CardTitle>
-            <Clock className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{formatDuration(stats.avgDuration)}</div>
-          </CardContent>
-        </Card>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Duração Média</CardTitle>
+              <Clock className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{formatDuration(stats.avgDuration)}</div>
+            </CardContent>
+          </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Preço Médio</CardTitle>
-            <DollarSign className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              R$ {stats.avgPrice.toFixed(0)}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Preço Médio</CardTitle>
+              <DollarSign className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">
+                R$ {stats.avgPrice.toFixed(0)}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
-      {/* Search */}
       <Card>
         <CardHeader>
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <CardTitle>Lista de Serviços</CardTitle>
-            <div className="relative flex-1 sm:w-80">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-              <Input
-                placeholder="Buscar serviços..."
-                className="pl-10"
-              />
+            <div className="flex gap-2">
+              <div className="relative flex-1 sm:w-80">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <Input
+                  placeholder="Buscar serviços..."
+                  className="pl-10"
+                  value={searchTerm}
+                  onChange={(e) => handleSearch(e.target.value)}
+                  disabled={loading}
+                />
+              </div>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="icon" disabled={loading}>
+                    <Filter className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => handleStatusFilter('all')}>
+                    Todos os serviços
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => handleStatusFilter('active')}>
+                    Apenas ativos
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleStatusFilter('inactive')}>
+                    Apenas inativos
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </div>
         </CardHeader>
         <CardContent>
-          {services.length === 0 ? (
+          {loading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              <span className="ml-2 text-muted-foreground">Carregando serviços...</span>
+            </div>
+          ) : services.length === 0 ? (
             <div className="text-center py-12">
               <Briefcase className="h-12 w-12 text-gray-400 mx-auto mb-4" />
               <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
-                Nenhum serviço cadastrado
+                {searchTerm || statusFilter !== 'all' 
+                  ? 'Nenhum serviço encontrado' 
+                  : 'Nenhum serviço cadastrado'
+                }
               </h3>
               <p className="text-gray-500 dark:text-gray-400 mb-4">
-                Adicione serviços para organizar melhor sua agenda
+                {searchTerm || statusFilter !== 'all'
+                  ? 'Tente ajustar os filtros de busca'
+                  : 'Adicione serviços para organizar melhor sua agenda'
+                }
               </p>
-              <Button>
-                <Plus className="h-4 w-4 mr-2" />
-                Adicionar Serviço
-              </Button>
+              {!searchTerm && statusFilter === 'all' && (
+                <Button onClick={handleCreateService}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Adicionar Serviço
+                </Button>
+              )}
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -200,7 +283,6 @@ export default function ServicosPage() {
                     !service.isActive ? 'opacity-60' : ''
                   }`}
                 >
-                  {/* Color indicator */}
                   <div
                     className="absolute top-0 left-0 w-1 h-full rounded-l-lg"
                     style={{ backgroundColor: service.color }}
@@ -217,9 +299,11 @@ export default function ServicosPage() {
                             <ToggleLeft className="h-4 w-4 text-gray-400" />
                           )}
                         </div>
-                        <p className="text-sm text-gray-600 dark:text-gray-400">
-                          {service.description}
-                        </p>
+                        {service.description && (
+                          <p className="text-sm text-gray-600 dark:text-gray-400 line-clamp-2">
+                            {service.description}
+                          </p>
+                        )}
                       </div>
                       
                       <DropdownMenu>
@@ -229,15 +313,15 @@ export default function ServicosPage() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleViewService(service)}>
                             <Eye className="h-4 w-4 mr-2" />
                             Ver Detalhes
                           </DropdownMenuItem>
-                          <DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleEditService(service)}>
                             <Edit className="h-4 w-4 mr-2" />
                             Editar
                           </DropdownMenuItem>
-                          <DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleToggleService(service)}>
                             {service.isActive ? (
                               <>
                                 <ToggleLeft className="h-4 w-4 mr-2" />
@@ -251,7 +335,10 @@ export default function ServicosPage() {
                             )}
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
-                          <DropdownMenuItem className="text-red-600">
+                          <DropdownMenuItem 
+                            className="text-red-600"
+                            onClick={() => handleDeleteService(service)}
+                          >
                             <Trash2 className="h-4 w-4 mr-2" />
                             Excluir
                           </DropdownMenuItem>
@@ -262,7 +349,6 @@ export default function ServicosPage() {
                   
                   <CardContent className="pt-0">
                     <div className="space-y-3">
-                      {/* Price and Duration */}
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-1 text-sm">
                           <Clock className="h-4 w-4 text-gray-500" />
@@ -273,18 +359,16 @@ export default function ServicosPage() {
                         <div className="flex items-center gap-1">
                           <DollarSign className="h-4 w-4 text-gray-500" />
                           <span className="font-semibold text-gray-900 dark:text-white">
-                            R$ {service.price.toFixed(2)}
+                            {service.price > 0 ? `R$ ${service.price.toFixed(2)}` : 'Variável'}
                           </span>
                         </div>
                       </div>
                       
-                      {/* Usage Stats */}
                       <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-500">
                         <span>{service.appointmentsCount} agendamentos</span>
                         <span>Usado em {formatDate(service.lastUsed)}</span>
                       </div>
                       
-                      {/* Usage Bar */}
                       <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
                         <div
                           className="h-2 rounded-full transition-all duration-500"
@@ -303,7 +387,6 @@ export default function ServicosPage() {
         </CardContent>
       </Card>
 
-      {/* Quick Tips */}
       <Card className="bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800">
         <CardContent className="pt-6">
           <div className="flex items-start gap-3">
@@ -324,6 +407,15 @@ export default function ServicosPage() {
           </div>
         </CardContent>
       </Card>
+
+      <ServiceModal
+        open={modalOpen}
+        onOpenChange={setModalOpen}
+        service={selectedService}
+        mode={modalMode}
+      />
+
+      <ConfirmDialog />
     </div>
   )
 }
