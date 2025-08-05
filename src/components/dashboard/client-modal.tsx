@@ -15,7 +15,9 @@ import {
   X,
   Loader2,
   Shield,
-  AlertTriangle
+  AlertTriangle,
+  Clock,
+  DollarSign
 } from 'lucide-react'
 
 import {
@@ -39,7 +41,6 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { useClients } from '@/hooks/use-clients'
 
-// Schema de validação para clientes
 const clientFormSchema = z.object({
   name: z.string()
     .min(2, 'Nome deve ter pelo menos 2 caracteres')
@@ -118,7 +119,6 @@ export default function ClientModal({
     }
   })
 
-  // Preencher formulário quando cliente for carregado
   useEffect(() => {
     if (client && (isEdit || mode === 'view')) {
       form.reset({
@@ -127,7 +127,7 @@ export default function ClientModal({
         phone: client.phone || '',
         birthDate: client.birthDate ? client.birthDate.split('T')[0] : '',
         notes: client.notes || '',
-        dataConsent: true // Se já existe, já consentiu
+        dataConsent: true
       })
     } else if (isCreate) {
       form.reset({
@@ -147,7 +147,6 @@ export default function ClientModal({
     setIsSubmitting(true)
 
     try {
-      // Limpar campos vazios
       const cleanData = {
         name: data.name,
         email: data.email || undefined,
@@ -223,27 +222,36 @@ export default function ClientModal({
           </DialogDescription>
         </DialogHeader>
 
-        {/* Estatísticas do Cliente (apenas no modo view) */}
         {mode === 'view' && client && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-gray-50 dark:bg-gray-800/50 rounded-lg">
             <div className="text-center">
-              <p className="text-2xl font-bold text-primary">{client.totalAppointments}</p>
+              <div className="flex items-center justify-center gap-1 mb-1">
+                <Calendar className="h-4 w-4 text-blue-600" />
+                <p className="text-lg font-bold text-blue-600">{client.totalAppointments}</p>
+              </div>
               <p className="text-xs text-muted-foreground">Consultas</p>
             </div>
             <div className="text-center">
-              <p className="text-2xl font-bold text-green-600">
-                R$ {client.totalSpent.toFixed(2)}
-              </p>
+              <div className="flex items-center justify-center gap-1 mb-1">
+                <DollarSign className="h-4 w-4 text-green-600" />
+                <p className="text-lg font-bold text-green-600">R$ {client.totalSpent.toFixed(2)}</p>
+              </div>
               <p className="text-xs text-muted-foreground">Total Gasto</p>
             </div>
             <div className="text-center">
-              <p className="text-sm font-semibold capitalize">{client.status}</p>
+              <div className="flex items-center justify-center gap-1 mb-1">
+                <User className="h-4 w-4 text-purple-600" />
+                <p className="text-sm font-semibold capitalize text-purple-600">{client.status}</p>
+              </div>
               <p className="text-xs text-muted-foreground">Status</p>
             </div>
             <div className="text-center">
-              <p className="text-sm font-semibold">
-                {client.lastAppointment ? formatDate(client.lastAppointment) : 'Nunca'}
-              </p>
+              <div className="flex items-center justify-center gap-1 mb-1">
+                <Clock className="h-4 w-4 text-orange-600" />
+                <p className="text-sm font-semibold text-orange-600">
+                  {client.lastAppointment ? formatDate(client.lastAppointment) : 'Nunca'}
+                </p>
+              </div>
               <p className="text-xs text-muted-foreground">Última Consulta</p>
             </div>
           </div>
@@ -251,7 +259,6 @@ export default function ClientModal({
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-            {/* Nome completo */}
             <FormField
               control={form.control}
               name="name"
@@ -274,7 +281,6 @@ export default function ClientModal({
             />
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Email */}
               <FormField
                 control={form.control}
                 name="email"
@@ -297,7 +303,6 @@ export default function ClientModal({
                 )}
               />
 
-              {/* Telefone */}
               <FormField
                 control={form.control}
                 name="phone"
@@ -321,7 +326,6 @@ export default function ClientModal({
               />
             </div>
 
-            {/* Data de nascimento */}
             <FormField
               control={form.control}
               name="birthDate"
@@ -343,7 +347,6 @@ export default function ClientModal({
               )}
             />
 
-            {/* Observações */}
             <FormField
               control={form.control}
               name="notes"
@@ -366,7 +369,6 @@ export default function ClientModal({
               )}
             />
 
-            {/* Consentimento LGPD */}
             {!isReadOnly && (
               <FormField
                 control={form.control}
@@ -398,7 +400,6 @@ export default function ClientModal({
               />
             )}
 
-            {/* Informações adicionais no modo visualização */}
             {mode === 'view' && client && (
               <div className="bg-gray-50 dark:bg-gray-800/50 p-4 rounded-lg space-y-2">
                 <h4 className="font-medium flex items-center gap-2">
@@ -422,7 +423,6 @@ export default function ClientModal({
 
         <DialogFooter>
           <div className="flex items-center justify-between w-full">
-            {/* Aviso LGPD */}
             {!isReadOnly && (
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <AlertTriangle className="h-3 w-3" />
@@ -430,7 +430,6 @@ export default function ClientModal({
               </div>
             )}
 
-            {/* Botões de ação */}
             <div className="flex gap-3">
               <Button
                 type="button"
