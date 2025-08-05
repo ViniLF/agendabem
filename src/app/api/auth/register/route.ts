@@ -8,9 +8,13 @@ import { EmailService } from '@/lib/email'
 
 export async function POST(request: NextRequest) {
   try {
-    // Rate limiting para cadastros
+    console.log('📝 Iniciando processo de cadastro...')
+    
+    // Rate limiting para cadastros (mais restritivo)
     const rateLimitResult = rateLimit(request, 'auth')
     if (!rateLimitResult.success) {
+      console.log('⚠️ Rate limit excedido para cadastro')
+      
       return NextResponse.json(
         { 
           error: 'Rate limit exceeded',
@@ -33,9 +37,13 @@ export async function POST(request: NextRequest) {
       dataConsent: Boolean(body.dataConsent)
     }
 
+    console.log(`📧 Tentativa de cadastro para: ${sanitizedData.email.replace(/(.{2}).*(@.*)/, '$1***$2')}`)
+
     // Validação com Zod
     const validationResult = userRegistrationSchema.safeParse(sanitizedData)
     if (!validationResult.success) {
+      console.log('❌ Dados de cadastro inválidos:', validationResult.error.issues)
+      
       return NextResponse.json(
         { 
           error: 'Validation failed',
@@ -51,12 +59,21 @@ export async function POST(request: NextRequest) {
 
     const { name, email, password, phone, dataConsent } = validationResult.data
 
+    console.log('✅ Dados validados com sucesso')
+
     // Verificar se o email já existe
     const existingUser = await prisma.user.findUnique({
-      where: { email }
+      where: { email },
+      select: {
+        id: true,
+        emailVerified: true,
+        createdAt: true
+      }
     })
 
     if (existingUser) {
+      console.log('⚠️ Email já cadastrado')
+      
       // Log de tentativa de cadastro duplicado
       await createAuditLog({
         action: 'CREATE',
@@ -64,7 +81,8 @@ export async function POST(request: NextRequest) {
         details: {
           email: email.replace(/(.{2}).*(@.*)/, '$1***$2'),
           error: 'Email já cadastrado',
-          ip: request.headers.get('x-forwarded-for') || 'unknown'
+          existingUserId: existingUser.id,
+          isEmailVerified: !!existingUser.emailVerified
         },
         ipAddress: request.headers.get('x-forwarded-for') || undefined,
         userAgent: request.headers.get('user-agent') || undefined
@@ -79,8 +97,12 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    console.log('🔐 Gerando hash da senha...')
+
     // Hash da senha
     const passwordHash = await hashPassword(password)
+
+    console.log('💾 Criando usuário no banco de dados...')
 
     // Criar usuário no banco de dados
     const user = await prisma.user.create({
@@ -102,7 +124,11 @@ export async function POST(request: NextRequest) {
       }
     })
 
+    console.log(`✅ Usuário criado com ID: ${user.id}`)
+
     // Criar perfil padrão para o usuário
+    console.log('📋 Criando perfil padrão...')
+    
     await prisma.profile.create({
       data: {
         userId: user.id,
@@ -117,11 +143,22 @@ export async function POST(request: NextRequest) {
       }
     })
 
-    // Enviar email de verificação
-    const emailSent = await EmailService.sendVerificationEmail(name, email)
+    console.log('✅ Perfil padrão criado')
+
+    // Enviar email de verificação usando o novo EmailService
+    console.log('📧 Enviando email de verificação...')
     
-    if (!emailSent) {
-      console.warn('⚠️ Email de verificação não foi enviado para:', email)
+    let emailSent = false
+    try {
+      emailSent = await EmailService.sendVerificationEmail(name, email, user.id)
+      
+      if (emailSent) {
+        console.log('✅ Email de verificação enviado com sucesso')
+      } else {
+        console.warn('⚠️ Falha ao enviar email de verificação')
+      }
+    } catch (emailError) {
+      console.error('❌ Erro ao enviar email de verificação:', emailError)
       // Não falhar o cadastro por causa do email
     }
 
@@ -136,11 +173,14 @@ export async function POST(request: NextRequest) {
         email: email.replace(/(.{2}).*(@.*)/, '$1***$2'),
         hasPhone: !!phone,
         dataConsent,
-        emailSent
+        emailSent,
+        profileCreated: true
       },
       ipAddress: request.headers.get('x-forwarded-for') || undefined,
       userAgent: request.headers.get('user-agent') || undefined
     })
+
+    console.log('🎉 Cadastro concluído com sucesso')
 
     // Resposta de sucesso
     return NextResponse.json(
@@ -153,13 +193,16 @@ export async function POST(request: NextRequest) {
           name: user.name,
           email: user.email,
           createdAt: user.createdAt
-        }
+        },
+        nextSteps: emailSent 
+          ? 'Verifique seu email para ativar a conta'
+          : 'Conta criada! Entre em contato conosco se não receber o email de verificação.'
       },
       { status: 201 }
     )
 
   } catch (error) {
-    console.error('Erro no cadastro:', error)
+    console.error('❌ Erro no cadastro:', error)
 
     // Log de erro no cadastro
     await createAuditLog({
@@ -167,12 +210,14 @@ export async function POST(request: NextRequest) {
       resource: 'user',
       details: {
         error: 'Erro interno no cadastro',
-        message: error instanceof Error ? error.message : 'Unknown error'
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack?.slice(0, 500) : undefined
       },
       ipAddress: request.headers.get('x-forwarded-for') || undefined,
       userAgent: request.headers.get('user-agent') || undefined
     })
 
+    // Resposta de erro genérica (não expor detalhes internos)
     return NextResponse.json(
       { 
         error: 'Internal server error',
@@ -183,13 +228,28 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// Método GET não permitido
+// Método GET não permitido para registro
 export async function GET() {
   return NextResponse.json(
     { 
       error: 'Method not allowed',
-      message: 'Método GET não permitido nesta rota'
+      message: 'Use POST para criar uma conta'
     },
     { status: 405 }
   )
+}
+
+// Função auxiliar para verificar se email está disponível (opcional)
+export async function checkEmailAvailability(email: string): Promise<boolean> {
+  try {
+    const existingUser = await prisma.user.findUnique({
+      where: { email: email.toLowerCase() },
+      select: { id: true }
+    })
+    
+    return !existingUser
+  } catch (error) {
+    console.error('Erro ao verificar disponibilidade do email:', error)
+    return false
+  }
 }

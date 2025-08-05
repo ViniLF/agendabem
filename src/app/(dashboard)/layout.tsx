@@ -11,7 +11,7 @@ export const metadata: Metadata = {
     default: 'Dashboard - AgendaBem'
   },
   description: 'Gerencie seus agendamentos, clientes e configurações',
-  robots: { index: false, follow: false } // Área privada
+  robots: { index: false, follow: false }
 }
 
 interface DashboardLayoutProps {
@@ -33,22 +33,19 @@ export default async function DashboardLayout({ children }: DashboardLayoutProps
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-      <div className="flex">
-        {/* Sidebar */}
-        <DashboardSidebar user={session.user} />
+      {/* Sidebar */}
+      <DashboardSidebar user={session.user} />
+      
+      <div className="lg:ml-72">
+        {/* Header */}
+        <DashboardHeader user={session.user} />
         
         {/* Main Content */}
-        <div className="flex-1 flex flex-col lg:ml-64">
-          {/* Header */}
-          <DashboardHeader user={session.user} />
-          
-          {/* Page Content */}
-          <main className="flex-1 p-6">
-            <div className="max-w-7xl mx-auto">
-              {children}
-            </div>
-          </main>
-        </div>
+        <main className="px-6 py-6">
+          <div className="max-w-7xl mx-auto">
+            {children}
+          </div>
+        </main>
       </div>
     </div>
   )
